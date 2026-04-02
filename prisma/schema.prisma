@@ -1,0 +1,194 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String
+  role          String   @default("staff") // admin, manager, staff
+  passwordHash  String
+  desiredHours  Int      @default(40)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  locationCertifications LocationCertification[]
+  skills                 UserSkill[]
+  availabilities         Availability[]
+  availabilityExceptions AvailabilityException[]
+  shiftAssignments       ShiftAssignment[]
+  managedLocations       LocationManager[]
+  notifications          Notification[]
+  auditLogs              AuditLog[]
+  swapRequestsAsRequester SwapRequest[] @relation("SwapRequester")
+  swapRequestsAsTarget    SwapRequest[] @relation("SwapTarget")
+  dropRequests           DropRequest[]
+}
+
+model Location {
+  id        String   @id @default(cuid())
+  name      String
+  address   String
+  timezone  String
+  createdAt DateTime @default(now())
+
+  shifts                 Shift[]
+  managers               LocationManager[]
+  certifications         LocationCertification[]
+}
+
+model LocationManager {
+  userId     String
+  locationId String
+  user       User     @relation(fields: [userId], references: [id])
+  location   Location @relation(fields: [locationId], references: [id])
+
+  @@id([userId, locationId])
+}
+
+model LocationCertification {
+  userId     String
+  locationId String
+  certifiedAt DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id])
+  location   Location @relation(fields: [locationId], references: [id])
+
+  @@id([userId, locationId])
+}
+
+model Skill {
+  id   String @id @default(cuid())
+  name String @unique
+
+  userSkills   UserSkill[]
+  shifts       Shift[]
+}
+
+model UserSkill {
+  userId  String
+  skillId String
+  user    User  @relation(fields: [userId], references: [id])
+  skill   Skill @relation(fields: [skillId], references: [id])
+
+  @@id([userId, skillId])
+}
+
+model Availability {
+  id        String  @id @default(cuid())
+  userId    String
+  dayOfWeek Int
+  startTime String
+  endTime   String
+  user      User    @relation(fields: [userId], references: [id])
+}
+
+model AvailabilityException {
+  id          String   @id @default(cuid())
+  userId      String
+  date        String
+  startTime   String?
+  endTime     String?
+  isAvailable Boolean  @default(false)
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+model Shift {
+  id           String   @id @default(cuid())
+  locationId   String
+  skillId      String
+  date         String
+  startTime    String
+  endTime      String
+  headcount    Int      @default(1)
+  status       String   @default("draft")
+  publishedAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  location     Location @relation(fields: [locationId], references: [id])
+  skill        Skill    @relation(fields: [skillId], references: [id])
+  assignments  ShiftAssignment[]
+  swapRequests SwapRequest[]
+}
+
+model ShiftAssignment {
+  id        String   @id @default(cuid())
+  shiftId   String
+  userId    String
+  status    String   @default("assigned")
+  createdAt DateTime @default(now())
+
+  shift        Shift  @relation(fields: [shiftId], references: [id])
+  user         User   @relation(fields: [userId], references: [id])
+  dropRequests DropRequest[]
+  swapRequestsAsSource SwapRequest[] @relation("SwapSourceAssignment")
+  swapRequestsAsTarget SwapRequest[] @relation("SwapTargetAssignment")
+
+  @@unique([shiftId, userId])
+}
+
+model SwapRequest {
+  id                   String   @id @default(cuid())
+  requesterId          String
+  targetId             String?
+  sourceAssignmentId   String
+  targetAssignmentId   String?
+  shiftId              String
+  type                 String
+  status               String   @default("pending")
+  managerNote          String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  expiresAt            DateTime?
+
+  requester            User     @relation("SwapRequester", fields: [requesterId], references: [id])
+  target               User?    @relation("SwapTarget", fields: [targetId], references: [id])
+  sourceAssignment     ShiftAssignment @relation("SwapSourceAssignment", fields: [sourceAssignmentId], references: [id])
+  targetAssignment     ShiftAssignment? @relation("SwapTargetAssignment", fields: [targetAssignmentId], references: [id])
+  shift                Shift    @relation(fields: [shiftId], references: [id])
+}
+
+model DropRequest {
+  id               String   @id @default(cuid())
+  assignmentId     String
+  userId           String
+  status           String   @default("open")
+  claimedByUserId  String?
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+
+  assignment  ShiftAssignment @relation(fields: [assignmentId], references: [id])
+  user        User            @relation(fields: [userId], references: [id])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  metadata  String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  entityType String
+  entityId   String
+  before     String?
+  after      String?
+  metadata   String?
+  createdAt  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+}

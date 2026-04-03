@@ -61,6 +61,8 @@ export default function SchedulePage() {
   const [constraintWarning, setConstraintWarning] = useState<any>(null)
   const [suggestions, setSuggestions] = useState<any[]>([])
   const [overrideReason, setOverrideReason] = useState('')
+  const [staffHours, setStaffHours] = useState<Record<string, number>>({})
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false)
 
   const isManager = session && ['admin', 'manager'].includes(session.user.role)
 
@@ -123,6 +125,36 @@ export default function SchedulePage() {
     if (shift.status === 'draft') return 'bg-gray-100 border-gray-300 text-gray-700'
     if (shift.assignments.length < shift.headcount) return 'bg-yellow-50 border-yellow-300 text-yellow-800'
     return 'bg-blue-50 border-blue-300 text-blue-800'
+  }
+
+  async function openAssignModal(shift: Shift) {
+    setShowAssignModal(shift)
+    setConstraintWarning(null)
+    setOverrideReason('')
+    setSuggestions([])
+    setLoadingSuggestions(true)
+
+    // Auto-load suggestions and current weekly hours in parallel
+    const weekStart = format(startOfWeek(parseISO(shift.date), { weekStartsOn: 1 }), 'yyyy-MM-dd')
+    const qualifiedUserIds = users
+      .filter(u =>
+        u.role !== 'admin' &&
+        !shift.assignments.find(a => a.user.id === u.id) &&
+        u.skills?.some((s: any) => s.skill.id === shift.skill.id) &&
+        u.locationCertifications?.some((lc: any) => lc.location.id === shift.locationId)
+      )
+      .map(u => u.id)
+
+    const [suggestionsRes, hoursRes] = await Promise.all([
+      fetch(`/api/shifts/${shift.id}/assign`),
+      qualifiedUserIds.length > 0
+        ? fetch(`/api/analytics/staff-hours?weekStart=${weekStart}&userIds=${qualifiedUserIds.join(',')}`)
+        : Promise.resolve(null),
+    ])
+
+    if (suggestionsRes.ok) setSuggestions(await suggestionsRes.json())
+    if (hoursRes?.ok) setStaffHours(await hoursRes.json())
+    setLoadingSuggestions(false)
   }
 
   async function handlePublish(shiftId: string) {
@@ -291,7 +323,7 @@ export default function SchedulePage() {
                     <div
                       key={shift.id}
                       className={`border rounded-lg p-2 text-xs cursor-pointer hover:shadow-md transition-shadow ${getShiftColor(shift)}`}
-                      onClick={() => isManager && setShowAssignModal(shift)}
+                      onClick={() => isManager && openAssignModal(shift)}
                     >
                       <div className="font-semibold truncate">{shift.location.name}</div>
                       <div className="text-xs opacity-80">{shift.skill.name}</div>
@@ -360,7 +392,7 @@ export default function SchedulePage() {
                   </p>
                 </div>
                 <button
-                  onClick={() => { setShowAssignModal(null); setConstraintWarning(null); setOverrideReason('') }}
+                  onClick={() => { setShowAssignModal(null); setConstraintWarning(null); setOverrideReason(''); setSuggestions([]); setStaffHours({}) }}
                   className="text-gray-500 hover:text-gray-700 text-xl"
                 >
                   &times;
@@ -369,6 +401,24 @@ export default function SchedulePage() {
             </div>
 
             <div className="p-6 space-y-4">
+              {/* Urgency banner — shift starting within 2 hours */}
+              {(() => {
+                const shiftStart = new Date(`${showAssignModal.date}T${showAssignModal.startTime}:00`)
+                const minsUntil = Math.round((shiftStart.getTime() - Date.now()) / 60000)
+                if (minsUntil > 0 && minsUntil <= 120) {
+                  return (
+                    <div className="p-3 bg-red-600 text-white rounded-lg flex items-center gap-2">
+                      <span className="text-lg">🚨</span>
+                      <div>
+                        <p className="font-bold text-sm">Shift starts in {minsUntil} minute{minsUntil !== 1 ? 's' : ''}</p>
+                        <p className="text-xs opacity-90">Assign qualified staff below — suggestions are pre-loaded.</p>
+                      </div>
+                    </div>
+                  )
+                }
+                return null
+              })()}
+
               {/* Current Assignments */}
               <div>
                 <h3 className="font-semibold text-gray-900 mb-3">
@@ -447,44 +497,60 @@ export default function SchedulePage() {
                 </div>
               )}
 
-              {/* Suggestions */}
-              {suggestions.length > 0 && (
-                <div>
-                  <h3 className="font-semibold text-gray-900 mb-3">Suggested Staff</h3>
-                  <div className="space-y-2">
-                    {suggestions.slice(0, 5).map((s: any) => (
-                      <div key={s.user.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
-                        <div>
-                          <p className="text-sm font-medium text-gray-900">{s.user.name}</p>
-                          {s.violations.length > 0 && (
-                            <p className="text-xs text-yellow-600">{s.violations[0]}</p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${
-                            s.score >= 80 ? 'bg-green-100 text-green-700' :
-                            s.score >= 50 ? 'bg-yellow-100 text-yellow-700' :
-                            'bg-red-100 text-red-700'
-                          }`}>
-                            {s.score}%
-                          </span>
-                          <button
-                            onClick={() => handleAssign(showAssignModal.id, s.user.id)}
-                            className="text-xs bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700"
-                          >
-                            Assign
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Assign from full list */}
+              {/* Suggestions — auto-loaded when modal opens */}
               <div>
-                <h3 className="font-semibold text-gray-900 mb-3">Assign Staff Member</h3>
-                <div className="space-y-2 max-h-48 overflow-y-auto">
+                <h3 className="font-semibold text-gray-900 mb-3">
+                  {loadingSuggestions ? 'Finding available staff…' : `Best matches (${suggestions.filter(s => s.score > 0).length} available)`}
+                </h3>
+                {loadingSuggestions ? (
+                  <div className="animate-pulse space-y-2">
+                    {[1,2,3].map(i => <div key={i} className="h-12 bg-gray-100 rounded-lg" />)}
+                  </div>
+                ) : suggestions.length === 0 ? (
+                  <p className="text-sm text-gray-400 py-2">No qualified staff found for this shift.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {suggestions.slice(0, 6).map((s: any) => {
+                      const hrs = staffHours[s.user.id] ?? 0
+                      const hoursColor = hrs >= 40 ? 'text-red-600' : hrs >= 35 ? 'text-yellow-600' : 'text-gray-500'
+                      return (
+                        <div key={s.user.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">{s.user.name}</p>
+                            <p className={`text-xs ${hoursColor}`}>
+                              {hrs}h this week
+                              {hrs >= 40 ? ' — over limit' : hrs >= 35 ? ' — approaching limit' : ''}
+                            </p>
+                            {s.violations.length > 0 && (
+                              <p className="text-xs text-yellow-600 mt-0.5">{s.violations[0]}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${
+                              s.score >= 80 ? 'bg-green-100 text-green-700' :
+                              s.score >= 50 ? 'bg-yellow-100 text-yellow-700' :
+                              'bg-red-100 text-red-700'
+                            }`}>
+                              {s.score}%
+                            </span>
+                            <button
+                              onClick={() => handleAssign(showAssignModal.id, s.user.id)}
+                              className="text-xs bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700"
+                            >
+                              Assign
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Assign from full qualified list */}
+              <div>
+                <h3 className="font-semibold text-gray-900 mb-3">All Qualified Staff</h3>
+                <div className="space-y-1 max-h-48 overflow-y-auto">
                   {users
                     .filter(
                       (u) =>
@@ -495,17 +561,24 @@ export default function SchedulePage() {
                           (lc: any) => lc.location.id === showAssignModal.locationId
                         )
                     )
-                    .map((u) => (
-                      <div key={u.id} className="flex items-center justify-between p-2.5 hover:bg-gray-50 rounded-lg">
-                        <span className="text-sm text-gray-900">{u.name}</span>
-                        <button
-                          onClick={() => handleAssign(showAssignModal.id, u.id)}
-                          className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-lg hover:bg-blue-200"
-                        >
-                          Assign
-                        </button>
-                      </div>
-                    ))}
+                    .map((u) => {
+                      const hrs = staffHours[u.id] ?? 0
+                      const hoursColor = hrs >= 40 ? 'text-red-600' : hrs >= 35 ? 'text-yellow-600' : 'text-gray-400'
+                      return (
+                        <div key={u.id} className="flex items-center justify-between p-2.5 hover:bg-gray-50 rounded-lg">
+                          <div>
+                            <span className="text-sm text-gray-900">{u.name}</span>
+                            <span className={`ml-2 text-xs ${hoursColor}`}>{hrs}h</span>
+                          </div>
+                          <button
+                            onClick={() => handleAssign(showAssignModal.id, u.id)}
+                            className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-lg hover:bg-blue-200"
+                          >
+                            Assign
+                          </button>
+                        </div>
+                      )
+                    })}
                 </div>
               </div>
 

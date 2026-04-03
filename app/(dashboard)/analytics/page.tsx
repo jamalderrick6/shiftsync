@@ -1,13 +1,23 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import React from 'react'
 import { format, addDays, startOfWeek } from 'date-fns'
+
+interface PremiumShiftDetail {
+  date: string
+  startTime: string
+  endTime: string
+  location: string
+  skill: string
+}
 
 interface FairnessStats {
   user: { id: string; name: string; email: string; desiredHours: number }
   totalHours: number
   shiftCount: number
   premiumShiftCount: number
+  premiumShifts: PremiumShiftDetail[]
   premiumFairnessOffset: number
   skills: string[]
   locations: string[]
@@ -30,6 +40,7 @@ export default function AnalyticsPage() {
   const [overtimeSummary, setOvertimeSummary] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'fairness' | 'overtime'>('fairness')
+  const [expandedStaff, setExpandedStaff] = useState<string | null>(null)
   const [dateRange, setDateRange] = useState({
     startDate: format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'),
     endDate: format(addDays(startOfWeek(new Date(), { weekStartsOn: 1 }), 27), 'yyyy-MM-dd'),
@@ -184,11 +195,20 @@ export default function AnalyticsPage() {
                   </td>
                 </tr>
               ) : (
-                fairnessStats.map((stat) => (
-                  <tr key={stat.user.id} className="border-b border-gray-100 hover:bg-gray-50">
+                fairnessStats.flatMap((stat): React.ReactNode[] => [
+                  <tr
+                    key={stat.user.id}
+                    className={`border-b border-gray-100 hover:bg-gray-50 cursor-pointer ${expandedStaff === stat.user.id ? 'bg-blue-50' : ''}`}
+                    onClick={() => setExpandedStaff(expandedStaff === stat.user.id ? null : stat.user.id)}
+                  >
                     <td className="px-4 py-3">
-                      <p className="text-sm font-medium text-gray-900">{stat.user.name}</p>
-                      <p className="text-xs text-gray-500">{stat.user.email}</p>
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-400 text-xs">{expandedStaff === stat.user.id ? '▼' : '▶'}</span>
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{stat.user.name}</p>
+                          <p className="text-xs text-gray-500">{stat.user.email}</p>
+                        </div>
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <span className={`text-sm font-bold ${
@@ -202,7 +222,9 @@ export default function AnalyticsPage() {
                     <td className="px-4 py-3 text-sm text-gray-700">{stat.shiftCount}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-medium text-gray-900">{stat.premiumShiftCount}</span>
+                        <span className={`text-sm font-medium ${stat.premiumShiftCount > 0 ? 'text-purple-700 underline decoration-dotted' : 'text-gray-900'}`}>
+                          {stat.premiumShiftCount}
+                        </span>
                         {stat.premiumFairnessOffset !== 0 && (
                           <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
                             stat.premiumFairnessOffset > 1 ? 'bg-orange-100 text-orange-700' :
@@ -250,8 +272,31 @@ export default function AnalyticsPage() {
                         />
                       </div>
                     </td>
-                  </tr>
-                ))
+                  </tr>,
+                  expandedStaff === stat.user.id ? (
+                    <tr key={`${stat.user.id}-detail`} className="bg-blue-50 border-b border-blue-100">
+                      <td colSpan={7} className="px-8 py-3">
+                        {stat.premiumShifts.length === 0 ? (
+                          <p className="text-sm text-gray-500 italic">No premium shifts (Fri/Sat eve) in this period.</p>
+                        ) : (
+                          <div>
+                            <p className="text-xs font-semibold text-purple-700 uppercase mb-2">Premium Shifts (Fri/Sat evenings)</p>
+                            <div className="flex flex-wrap gap-2">
+                              {stat.premiumShifts.map((ps, i) => (
+                                <div key={i} className="bg-white border border-purple-200 rounded-lg px-3 py-2 text-xs shadow-sm">
+                                  <p className="font-semibold text-gray-900">{format(new Date(ps.date + 'T00:00:00'), 'EEE, MMM d yyyy')}</p>
+                                  <p className="text-gray-600">{ps.startTime} – {ps.endTime}</p>
+                                  <p className="text-purple-700">{ps.location}</p>
+                                  <p className="text-gray-500">{ps.skill}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ) : null,
+                ])
               )}
             </tbody>
           </table>

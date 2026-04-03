@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
     totalHours: number
     shiftCount: number
     premiumShiftCount: number
+    premiumShifts: { date: string; startTime: string; endTime: string; location: string; skill: string }[]
     skills: Set<string>
     locations: Set<string>
     weeklyHours: Record<string, number>
@@ -57,6 +58,7 @@ export async function GET(request: NextRequest) {
         totalHours: 0,
         shiftCount: 0,
         premiumShiftCount: 0,
+        premiumShifts: [],
         skills: new Set(),
         locations: new Set(),
         weeklyHours: {},
@@ -71,6 +73,13 @@ export async function GET(request: NextRequest) {
 
     if (isPremiumShift(shift.date, shift.startTime)) {
       userStats[user.id].premiumShiftCount++
+      userStats[user.id].premiumShifts.push({
+        date: shift.date,
+        startTime: shift.startTime,
+        endTime: shift.endTime,
+        location: shift.location.name,
+        skill: shift.skill.name,
+      })
       totalPremiumShifts++
     }
 
@@ -88,6 +97,7 @@ export async function GET(request: NextRequest) {
     totalHours: Math.round(s.totalHours * 10) / 10,
     shiftCount: s.shiftCount,
     premiumShiftCount: s.premiumShiftCount,
+    premiumShifts: s.premiumShifts.sort((a, b) => a.date.localeCompare(b.date)),
     // >0: getting more than fair share; <0: getting fewer
     premiumFairnessOffset: Math.round((s.premiumShiftCount - avgPremiumPerStaff) * 10) / 10,
     skills: Array.from(s.skills),

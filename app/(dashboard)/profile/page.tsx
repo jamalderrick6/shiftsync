@@ -33,6 +33,7 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [droppingShiftId, setDroppingShiftId] = useState<string | null>(null)
+  const [notificationPreference, setNotificationPreference] = useState<'inapp' | 'email'>('inapp')
   const [activeTab, setActiveTab] = useState<'availability' | 'swaps' | 'schedule' | 'pickup'>('availability')
 
   useEffect(() => {
@@ -56,6 +57,7 @@ export default function ProfilePage() {
       const me = users.find((u: any) => u.id === session?.user.id)
       if (me) {
         setUserProfile(me)
+        setNotificationPreference(me.notificationPreference || 'inapp')
         setAvailabilities(
           me.availabilities || Array.from({ length: 7 }, (_, i) => ({
             dayOfWeek: i,
@@ -95,6 +97,7 @@ export default function ProfilePage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         id: session?.user.id,
+        notificationPreference,
         availabilities: availabilities.map(({ dayOfWeek, startTime, endTime }) => ({
           dayOfWeek,
           startTime,
@@ -244,6 +247,40 @@ export default function ProfilePage() {
           <p className="text-sm text-gray-500 mb-4">
             Set your regular availability. Managers will use this when scheduling shifts.
           </p>
+
+          {/* Notification preference */}
+          <div className="mb-5 p-4 bg-gray-50 rounded-lg border border-gray-200">
+            <p className="text-sm font-medium text-gray-900 mb-2">Notification Preference</p>
+            <div className="flex gap-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="notifPref"
+                  value="inapp"
+                  checked={notificationPreference === 'inapp'}
+                  onChange={() => setNotificationPreference('inapp')}
+                  className="accent-blue-600"
+                />
+                <span className="text-sm text-gray-700">In-app only</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="notifPref"
+                  value="email"
+                  checked={notificationPreference === 'email'}
+                  onChange={() => setNotificationPreference('email')}
+                  className="accent-blue-600"
+                />
+                <span className="text-sm text-gray-700">In-app + Email simulation</span>
+              </label>
+            </div>
+            {notificationPreference === 'email' && (
+              <p className="text-xs text-blue-600 mt-1.5">
+                Email notifications will be logged to the server console (simulation mode).
+              </p>
+            )}
+          </div>
 
           <div className="space-y-3">
             {DAYS.map((day, i) => {

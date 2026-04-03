@@ -111,7 +111,7 @@ export async function PATCH(request: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json()
-  const { id, name, desiredHours, skills, locationIds, availabilities } = body
+  const { id, name, desiredHours, notificationPreference, skills, locationIds, availabilities } = body
 
   // Users can only edit themselves unless admin
   if (session.user.role !== 'admin' && session.user.id !== id) {
@@ -123,6 +123,7 @@ export async function PATCH(request: NextRequest) {
     data: {
       ...(name ? { name } : {}),
       ...(desiredHours !== undefined ? { desiredHours } : {}),
+      ...(notificationPreference ? { notificationPreference } : {}),
       ...(skills !== undefined
         ? {
             skills: {

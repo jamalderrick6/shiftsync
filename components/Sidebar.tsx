@@ -18,6 +18,7 @@ const navItems = [
   { href: '/staff', label: 'Staff', icon: '👥', roles: ['admin', 'manager'] },
   { href: '/locations', label: 'Locations', icon: '📍', roles: ['admin', 'manager'] },
   { href: '/analytics', label: 'Analytics', icon: '📈', roles: ['admin', 'manager'] },
+  { href: '/audit', label: 'Audit Log', icon: '📋', roles: ['admin'] },
   { href: '/notifications', label: 'Notifications', icon: '🔔', roles: ['admin', 'manager', 'staff'] },
   { href: '/profile', label: 'My Profile', icon: '👤', roles: ['admin', 'manager', 'staff'] },
 ]

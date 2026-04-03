@@ -13,7 +13,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   }
 
   const body = await request.json()
-  const { userId, override = false } = body
+  const { userId, override = false, overrideReason = '' } = body
 
   if (!userId) {
     return NextResponse.json({ error: 'userId required' }, { status: 400 })
@@ -57,7 +57,16 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         warnings: checks.warnings,
         suggestions,
         requiresOverride: true,
+        requiresOverrideReason: checks.requiresOverrideReason,
       },
+      { status: 422 }
+    )
+  }
+
+  // 7th consecutive day: override is allowed but reason is mandatory
+  if (checks.requiresOverrideReason && override && !overrideReason.trim()) {
+    return NextResponse.json(
+      { error: 'A documented reason is required to assign a 7th consecutive working day.', requiresOverrideReason: true },
       { status: 422 }
     )
   }
@@ -114,8 +123,6 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     )
   }
 
-  const user = await prisma.user.findUnique({ where: { id: userId } })
-
   // Notify user if shift is published
   if (shift.status === 'published') {
     await createNotification({
@@ -133,6 +140,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     entityType: 'shiftAssignment',
     entityId: assignment.id,
     after: { shiftId: params.id, userId, override, warnings: checks.warnings },
+    metadata: overrideReason ? { overrideReason } : undefined,
   })
 
   return NextResponse.json({
@@ -167,7 +175,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
   return NextResponse.json({ success: true })
 }
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 

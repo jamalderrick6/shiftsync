@@ -8,14 +8,15 @@ datasource db {
 }
 
 model User {
-  id            String   @id @default(cuid())
-  email         String   @unique
-  name          String
-  role          String   @default("staff") // admin, manager, staff
-  passwordHash  String
-  desiredHours  Int      @default(40)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                     String   @id @default(cuid())
+  email                  String   @unique
+  name                   String
+  role                   String   @default("staff") // admin, manager, staff
+  passwordHash           String
+  desiredHours           Int      @default(40)
+  notificationPreference String   @default("inapp") // inapp, email
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   locationCertifications LocationCertification[]
   skills                 UserSkill[]

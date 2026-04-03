@@ -36,7 +36,31 @@ export async function createNotification(input: CreateNotificationInput) {
     // SSE not available, ignore
   }
 
+  // Simulate email if the user has opted in
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: input.userId },
+      select: { email: true, name: true, notificationPreference: true },
+    })
+    if (user?.notificationPreference === 'email') {
+      simulateEmail(user.email, user.name, input.title, input.message)
+    }
+  } catch {
+    // non-critical
+  }
+
   return notification
+}
+
+// Simulated email — logs to console as a stand-in for a real email service
+function simulateEmail(to: string, name: string, subject: string, body: string) {
+  console.log(
+    `\n📧 [EMAIL SIMULATION]\n` +
+    `To: ${name} <${to}>\n` +
+    `Subject: ${subject}\n` +
+    `Body: ${body}\n` +
+    `───────────────────────`
+  )
 }
 
 export async function notifyShiftPublished(shiftId: string, locationName: string, date: string) {

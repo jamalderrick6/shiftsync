@@ -60,6 +60,7 @@ export default function SchedulePage() {
   const [showSwapModal, setShowSwapModal] = useState<{ shift: Shift; assignmentId: string } | null>(null)
   const [constraintWarning, setConstraintWarning] = useState<any>(null)
   const [suggestions, setSuggestions] = useState<any[]>([])
+  const [overrideReason, setOverrideReason] = useState('')
 
   const isManager = session && ['admin', 'manager'].includes(session.user.role)
 
@@ -158,12 +159,17 @@ export default function SchedulePage() {
     const res = await fetch(`/api/shifts/${shiftId}/assign`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, override: true }),
+      body: JSON.stringify({ userId, override: true, overrideReason }),
     })
+    const data = await res.json()
     if (res.ok) {
       setShowAssignModal(null)
       setConstraintWarning(null)
+      setOverrideReason('')
       fetchShifts()
+    } else if (data.requiresOverrideReason) {
+      // Server rejected — reason was blank; keep modal open so user can fill it
+      setConstraintWarning((prev: any) => ({ ...prev, reasonError: true }))
     }
   }
 
@@ -354,7 +360,7 @@ export default function SchedulePage() {
                   </p>
                 </div>
                 <button
-                  onClick={() => { setShowAssignModal(null); setConstraintWarning(null) }}
+                  onClick={() => { setShowAssignModal(null); setConstraintWarning(null); setOverrideReason('') }}
                   className="text-gray-500 hover:text-gray-700 text-xl"
                 >
                   &times;
@@ -407,12 +413,36 @@ export default function SchedulePage() {
                     </>
                   )}
                   {constraintWarning.requiresOverride && (
-                    <button
-                      onClick={() => handleAssignOverride(constraintWarning.shiftId, constraintWarning.userId)}
-                      className="mt-3 text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700"
-                    >
-                      Override and Assign Anyway
-                    </button>
+                    <div className="mt-3 space-y-2">
+                      {constraintWarning.requiresOverrideReason && (
+                        <div>
+                          <label className="block text-xs font-semibold text-red-800 mb-1">
+                            Documented reason required (7th consecutive day):
+                          </label>
+                          <textarea
+                            value={overrideReason}
+                            onChange={(e) => setOverrideReason(e.target.value)}
+                            placeholder="Enter reason for override..."
+                            rows={2}
+                            className={`w-full text-xs border rounded-lg px-2 py-1.5 text-gray-900 focus:outline-none focus:ring-2 focus:ring-red-400 ${
+                              constraintWarning.reasonError && !overrideReason.trim()
+                                ? 'border-red-500 bg-red-50'
+                                : 'border-red-300 bg-white'
+                            }`}
+                          />
+                          {constraintWarning.reasonError && !overrideReason.trim() && (
+                            <p className="text-xs text-red-600 mt-0.5">A reason is required to proceed.</p>
+                          )}
+                        </div>
+                      )}
+                      <button
+                        onClick={() => handleAssignOverride(constraintWarning.shiftId, constraintWarning.userId)}
+                        className="text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 disabled:opacity-50"
+                        disabled={constraintWarning.requiresOverrideReason && !overrideReason.trim()}
+                      >
+                        Override and Assign Anyway
+                      </button>
+                    </div>
                   )}
                 </div>
               )}

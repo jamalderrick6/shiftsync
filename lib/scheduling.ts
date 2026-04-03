@@ -362,13 +362,14 @@ export async function runConstraintChecks(
   canAssign: boolean
   violations: string[]
   warnings: string[]
+  requiresOverrideReason: boolean  // true when 7th consecutive day
 }> {
   const shift = await prisma.shift.findUnique({
     where: { id: shiftId },
     include: { location: true, skill: true },
   })
 
-  if (!shift) return { canAssign: false, violations: ['Shift not found'], warnings: [] }
+  if (!shift) return { canAssign: false, violations: ['Shift not found'], warnings: [], requiresOverrideReason: false }
 
   const violations: string[] = []
   const warnings: string[] = []
@@ -426,10 +427,22 @@ export async function runConstraintChecks(
     warnings.push(weeklyHours.message!)
   }
 
+  // 7. Consecutive days
+  const consecutive = await checkConsecutiveDays(userId, shift.date)
+  let requiresOverrideReason = false
+  if (consecutive.isViolation) {
+    // 7th consecutive day: blocks unless manager provides override reason
+    violations.push(`This would be ${consecutive.consecutiveDays} consecutive working days. A documented reason is required.`)
+    requiresOverrideReason = true
+  } else if (consecutive.isWarning) {
+    warnings.push(`${consecutive.consecutiveDays} consecutive working days (6th day warning).`)
+  }
+
   return {
     canAssign: violations.length === 0,
     violations,
     warnings,
+    requiresOverrideReason,
   }
 }
 

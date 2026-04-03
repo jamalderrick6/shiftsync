@@ -62,16 +62,57 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     )
   }
 
-  // Create assignment
-  const assignment = await prisma.shiftAssignment.create({
-    data: {
-      shiftId: params.id,
-      userId,
-    },
-    include: {
-      user: { select: { id: true, name: true, email: true } },
-    },
-  })
+  // Create assignment inside a transaction — re-check double-booking atomically
+  // to prevent two managers assigning the same person simultaneously
+  let assignment: { id: string; shiftId: string; userId: string; status: string; createdAt: Date; user: { id: string; name: string; email: string } }
+  try {
+    assignment = await prisma.$transaction(async (tx) => {
+      // Re-check for conflicting assignments within the transaction
+      const conflictingAssignment = await tx.shiftAssignment.findFirst({
+        where: {
+          userId,
+          status: { not: 'no_show' },
+          shift: {
+            date: shift.date,
+            id: { not: params.id },
+          },
+        },
+        include: { shift: { include: { location: true } } },
+      })
+
+      if (conflictingAssignment) {
+        const s = conflictingAssignment.shift as typeof conflictingAssignment.shift & { location: { name: string } }
+        throw new Error(
+          `CONCURRENT_CONFLICT:${s.location.name}:${s.startTime}-${s.endTime}`
+        )
+      }
+
+      return tx.shiftAssignment.create({
+        data: { shiftId: params.id, userId },
+        include: {
+          user: { select: { id: true, name: true, email: true } },
+        },
+      })
+    })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : ''
+    if (message.startsWith('CONCURRENT_CONFLICT:')) {
+      const [, location, time] = message.split(':')
+      return NextResponse.json(
+        {
+          error: 'Concurrent assignment conflict',
+          message: `Another manager just assigned this staff member to a shift at ${location} (${time}) at the same time. Please refresh and try again.`,
+          concurrent: true,
+        },
+        { status: 409 }
+      )
+    }
+    // Unique constraint — already assigned
+    return NextResponse.json(
+      { error: 'User already assigned to this shift' },
+      { status: 409 }
+    )
+  }
 
   const user = await prisma.user.findUnique({ where: { id: userId } })
 

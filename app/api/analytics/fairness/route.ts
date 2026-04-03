@@ -2,8 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { shiftDurationHours } from '@/lib/timezone'
-import { format, addDays, parseISO } from 'date-fns'
+import { shiftDurationHours, timeToMinutes } from '@/lib/timezone'
+import { format, addDays, parseISO, getDay } from 'date-fns'
+
+// Premium shift: Friday (5) or Saturday (6), starting at or after 17:00
+function isPremiumShift(date: string, startTime: string): boolean {
+  const dayOfWeek = getDay(parseISO(date)) // 0=Sun, 5=Fri, 6=Sat
+  const startMinutes = timeToMinutes(startTime)
+  return (dayOfWeek === 5 || dayOfWeek === 6) && startMinutes >= 17 * 60
+}
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -34,10 +41,13 @@ export async function GET(request: NextRequest) {
     user: { id: string; name: string; email: string; desiredHours: number }
     totalHours: number
     shiftCount: number
+    premiumShiftCount: number
     skills: Set<string>
     locations: Set<string>
     weeklyHours: Record<string, number>
   }> = {}
+
+  let totalPremiumShifts = 0
 
   for (const assignment of assignments) {
     const { user, shift } = assignment
@@ -46,6 +56,7 @@ export async function GET(request: NextRequest) {
         user,
         totalHours: 0,
         shiftCount: 0,
+        premiumShiftCount: 0,
         skills: new Set(),
         locations: new Set(),
         weeklyHours: {},
@@ -58,16 +69,27 @@ export async function GET(request: NextRequest) {
     userStats[user.id].skills.add(shift.skill.name)
     userStats[user.id].locations.add(shift.location.name)
 
+    if (isPremiumShift(shift.date, shift.startTime)) {
+      userStats[user.id].premiumShiftCount++
+      totalPremiumShifts++
+    }
+
     // Track weekly hours
     const weekKey = format(parseISO(shift.date), 'yyyy-\'W\'II')
     userStats[user.id].weeklyHours[weekKey] =
       (userStats[user.id].weeklyHours[weekKey] || 0) + hours
   }
 
+  const staffCount = Object.keys(userStats).length
+  const avgPremiumPerStaff = staffCount > 0 ? totalPremiumShifts / staffCount : 0
+
   const stats = Object.values(userStats).map((s) => ({
     user: s.user,
     totalHours: Math.round(s.totalHours * 10) / 10,
     shiftCount: s.shiftCount,
+    premiumShiftCount: s.premiumShiftCount,
+    // >0: getting more than fair share; <0: getting fewer
+    premiumFairnessOffset: Math.round((s.premiumShiftCount - avgPremiumPerStaff) * 10) / 10,
     skills: Array.from(s.skills),
     locations: Array.from(s.locations),
     weeklyHours: s.weeklyHours,
@@ -90,6 +112,17 @@ export async function GET(request: NextRequest) {
       ? allHours.reduce((acc, h) => acc + Math.pow(h - avgHours, 2), 0) / allHours.length
       : 0
 
+  // Premium shift fairness score: 0-100, higher = more equitable distribution
+  const premiumCounts = stats.map((s) => s.premiumShiftCount)
+  const premiumVariance = premiumCounts.length > 1
+    ? premiumCounts.reduce((acc, c) => acc + Math.pow(c - avgPremiumPerStaff, 2), 0) / premiumCounts.length
+    : 0
+  const premiumStdDev = Math.sqrt(premiumVariance)
+  // Score: 100 when stdDev = 0 (perfect equity), drops as distribution becomes uneven
+  const premiumFairnessScore = premiumStdDev === 0
+    ? 100
+    : Math.max(0, Math.round(100 - (premiumStdDev / Math.max(avgPremiumPerStaff, 1)) * 50))
+
   return NextResponse.json({
     stats: stats.sort((a, b) => b.totalHours - a.totalHours),
     summary: {
@@ -98,6 +131,9 @@ export async function GET(request: NextRequest) {
       minHours: Math.round(minHours * 10) / 10,
       stdDev: Math.round(Math.sqrt(variance) * 10) / 10,
       totalStaff: stats.length,
+      totalPremiumShifts,
+      avgPremiumPerStaff: Math.round(avgPremiumPerStaff * 10) / 10,
+      premiumFairnessScore,
     },
   })
 }

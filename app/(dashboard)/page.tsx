@@ -3,6 +3,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { format, addDays, startOfWeek } from 'date-fns'
 import Link from 'next/link'
+import OnDutyNow from '@/components/OnDutyNow'
 
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions)!
@@ -76,6 +77,9 @@ export default async function DashboardPage() {
           <p className="text-xs text-purple-600 mt-1">Restaurant locations</p>
         </div>
       </div>
+
+      {/* On Duty Now — managers and admins only */}
+      {isManager && <OnDutyNow />}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Upcoming shifts for staff */}

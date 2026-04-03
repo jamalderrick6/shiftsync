@@ -7,6 +7,8 @@ interface FairnessStats {
   user: { id: string; name: string; email: string; desiredHours: number }
   totalHours: number
   shiftCount: number
+  premiumShiftCount: number
+  premiumFairnessOffset: number
   skills: string[]
   locations: string[]
   hoursVsDesired: number
@@ -89,15 +91,26 @@ export default function AnalyticsPage() {
 
       {/* Summary Cards */}
       {fairnessSummary && overtimeSummary && (
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
           <div className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm">
             <p className="text-xs text-gray-500">Avg Hours/Staff</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{fairnessSummary.avgHours}</p>
+            <p className="text-2xl font-bold text-gray-900 mt-1">{fairnessSummary.avgHours}h</p>
           </div>
           <div className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm">
-            <p className="text-xs text-gray-500">Std Deviation</p>
+            <p className="text-xs text-gray-500">Hours Std Dev</p>
             <p className="text-2xl font-bold text-gray-900 mt-1">{fairnessSummary.stdDev}h</p>
             <p className="text-xs text-gray-500 mt-0.5">Lower is fairer</p>
+          </div>
+          <div className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm">
+            <p className="text-xs text-gray-500">Premium Fairness</p>
+            <p className={`text-2xl font-bold mt-1 ${
+              fairnessSummary.premiumFairnessScore >= 80 ? 'text-green-600' :
+              fairnessSummary.premiumFairnessScore >= 60 ? 'text-yellow-600' :
+              'text-red-600'
+            }`}>
+              {fairnessSummary.premiumFairnessScore}/100
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5">{fairnessSummary.totalPremiumShifts} Fri/Sat eve shifts</p>
           </div>
           <div className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm">
             <p className="text-xs text-gray-500">Staff Scheduled</p>
@@ -157,6 +170,7 @@ export default function AnalyticsPage() {
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Staff Member</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Total Hours</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Shifts</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Premium Shifts</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">vs Desired</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Fulfillment</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase">Hours Bar</th>
@@ -165,7 +179,7 @@ export default function AnalyticsPage() {
             <tbody>
               {fairnessStats.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-8 text-gray-500">
+                  <td colSpan={7} className="text-center py-8 text-gray-500">
                     No data for the selected period
                   </td>
                 </tr>
@@ -186,6 +200,20 @@ export default function AnalyticsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700">{stat.shiftCount}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-medium text-gray-900">{stat.premiumShiftCount}</span>
+                        {stat.premiumFairnessOffset !== 0 && (
+                          <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                            stat.premiumFairnessOffset > 1 ? 'bg-orange-100 text-orange-700' :
+                            stat.premiumFairnessOffset < -1 ? 'bg-blue-100 text-blue-700' :
+                            'bg-gray-100 text-gray-600'
+                          }`}>
+                            {stat.premiumFairnessOffset > 0 ? '+' : ''}{stat.premiumFairnessOffset}
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-4 py-3">
                       <span className={`text-sm font-medium ${
                         stat.hoursVsDesired > 5 ? 'text-red-600' :

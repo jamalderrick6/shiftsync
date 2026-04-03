@@ -17,7 +17,7 @@ export interface OvertimeResult {
 
 export interface ConsecutiveDaysResult {
   consecutiveDays: number
-  isWarning: boolean // 5+
+  isWarning: boolean // 6+
   isViolation: boolean // 7+
 }
 
@@ -79,7 +79,7 @@ export async function checkMinRestPeriod(
   endTime: string,
   excludeShiftId?: string
 ): Promise<ConflictResult> {
-  const MIN_REST_HOURS = 8
+  const MIN_REST_HOURS = 10
 
   // Check previous day and same day for nearby shifts
   const prevDate = format(subDays(parseISO(date), 1), 'yyyy-MM-dd')
@@ -249,12 +249,12 @@ export async function checkDailyHours(
   return {
     totalHours,
     isWarning: totalHours >= 8,
-    isOvertime: totalHours >= 10,
+    isOvertime: totalHours >= 12,
     message:
-      totalHours >= 10
-        ? `${totalHours.toFixed(1)} daily hours exceeds 10-hour limit`
+      totalHours >= 12
+        ? `${totalHours.toFixed(1)} daily hours exceeds 12-hour limit`
         : totalHours >= 8
-        ? `${totalHours.toFixed(1)} daily hours approaching limit`
+        ? `${totalHours.toFixed(1)} daily hours approaching 12-hour limit`
         : undefined,
   }
 }
@@ -347,7 +347,7 @@ export async function checkConsecutiveDays(
 
   return {
     consecutiveDays,
-    isWarning: consecutiveDays >= 5,
+    isWarning: consecutiveDays >= 6,
     isViolation: consecutiveDays >= 7,
   }
 }

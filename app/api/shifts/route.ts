@@ -62,6 +62,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
+  // Managers cannot create shifts in the past; admins can backfill
+  if (session.user.role !== 'admin') {
+    const today = new Date().toISOString().slice(0, 10)
+    if (date < today) {
+      return NextResponse.json({ error: 'Cannot create a shift in the past' }, { status: 400 })
+    }
+  }
+
   const shift = await prisma.shift.create({
     data: {
       locationId,

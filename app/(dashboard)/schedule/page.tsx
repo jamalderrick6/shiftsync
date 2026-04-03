@@ -610,6 +610,7 @@ export default function SchedulePage() {
           locations={locations}
           skills={skills}
           defaultDate={format(currentWeekStart, 'yyyy-MM-dd')}
+          isAdmin={session?.user.role === 'admin'}
           onClose={() => setShowCreateModal(false)}
           onCreated={() => { setShowCreateModal(false); fetchShifts() }}
         />
@@ -622,12 +623,14 @@ function CreateShiftModal({
   locations,
   skills,
   defaultDate,
+  isAdmin,
   onClose,
   onCreated,
 }: {
   locations: Location[]
   skills: Skill[]
   defaultDate: string
+  isAdmin: boolean
   onClose: () => void
   onCreated: () => void
 }) {
@@ -704,6 +707,7 @@ function CreateShiftModal({
               <input
                 type="date"
                 value={form.date}
+                min={isAdmin ? undefined : new Date().toISOString().slice(0, 10)}
                 onChange={(e) => setForm({ ...form, date: e.target.value })}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required

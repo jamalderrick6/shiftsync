@@ -6,7 +6,7 @@
 
 ## 1. Application Access
 
-**Live URL:** _(to be added after deployment)_
+**Live URL:** https://shiftsync-production-aada.up.railway.app
 
 ---
 

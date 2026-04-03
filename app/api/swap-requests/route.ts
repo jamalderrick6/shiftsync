@@ -217,7 +217,18 @@ export async function PATCH(request: NextRequest) {
   })
 
   // Notify relevant parties
-  if (action === 'accept') {
+  if (action === 'cancel') {
+    // Notify the target that the requester cancelled
+    if (swapRequest.targetId) {
+      await createNotification({
+        userId: swapRequest.targetId,
+        type: 'swap_cancelled',
+        title: 'Swap Request Cancelled',
+        message: `${swapRequest.requester.name} cancelled their swap request for the shift on ${swapRequest.sourceAssignment.shift.date}.`,
+        metadata: { swapRequestId: id },
+      })
+    }
+  } else if (action === 'accept') {
     await createNotification({
       userId: swapRequest.requesterId,
       type: 'swap_accepted',

@@ -161,7 +161,18 @@ export async function checkLocationCertification(
 }
 
 /**
- * Check user availability for a given shift
+ * Check user availability for a given shift.
+ *
+ * Design decision: availability windows are stored in the staff member's
+ * "home timezone", inferred as the timezone of their first certified location
+ * (ordered alphabetically by location name for determinism). This means a staff
+ * member who sets "09:00–17:00" is saying "9am–5pm in my home timezone."
+ *
+ * Shift times are stored in the shift's location timezone. When the shift is at
+ * a different location (and therefore a different timezone), we convert the shift
+ * start/end into the staff member's home timezone before comparing against their
+ * availability window. The day-of-week check also uses the converted date so that
+ * overnight timezone crossings are handled correctly.
  */
 export async function checkAvailability(
   userId: string,
@@ -170,9 +181,26 @@ export async function checkAvailability(
   endTime: string,
   locationTimezone: string
 ): Promise<ConflictResult> {
-  // Check for exceptions first
+  // Determine the staff member's home timezone from their first certified location
+  const firstCert = await prisma.locationCertification.findFirst({
+    where: { userId },
+    include: { location: true },
+    orderBy: { location: { name: 'asc' } },
+  })
+  const staffTimezone = firstCert?.location.timezone ?? locationTimezone
+
+  // Convert shift start/end from the shift's location timezone to the staff's home timezone
+  const convertedStart = convertTime(date, startTime, locationTimezone, staffTimezone)
+  const convertedEnd = convertTime(date, endTime, locationTimezone, staffTimezone)
+
+  // Use the converted date for day-of-week (handles midnight crossings)
+  const effectiveDate = convertedStart.date
+  const effectiveStartTime = convertedStart.time
+  const effectiveEndTime = convertedEnd.time
+
+  // Check for exceptions first (keyed on the date in the staff's home timezone)
   const exception = await prisma.availabilityException.findFirst({
-    where: { userId, date },
+    where: { userId, date: effectiveDate },
   })
 
   if (exception) {
@@ -180,44 +208,49 @@ export async function checkAvailability(
       if (!exception.startTime && !exception.endTime) {
         return {
           hasConflict: true,
-          message: `User is not available on ${date} (day-off exception)`,
+          message: `User is not available on ${effectiveDate} (day-off exception)`,
         }
       }
       if (exception.startTime && exception.endTime) {
-        if (timesOverlap(startTime, endTime, exception.startTime, exception.endTime)) {
+        if (timesOverlap(effectiveStartTime, effectiveEndTime, exception.startTime, exception.endTime)) {
           return {
             hasConflict: true,
-            message: `User has marked themselves unavailable from ${exception.startTime} to ${exception.endTime} on ${date}`,
+            message: `User has marked themselves unavailable from ${exception.startTime} to ${exception.endTime} on ${effectiveDate}`,
           }
         }
       }
     }
   }
 
-  // Check regular availability
-  const dayOfWeek = parseISO(date).getDay()
+  // Check regular availability using the day-of-week in staff's home timezone
+  const dayOfWeek = parseISO(effectiveDate).getDay()
   const availability = await prisma.availability.findFirst({
     where: { userId, dayOfWeek },
   })
 
   if (!availability) {
-    // No availability set for this day - assume unavailable
     return {
       hasConflict: true,
-      message: `User has no availability set for ${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dayOfWeek]}`,
+      message: `User has no availability set for ${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][dayOfWeek]} (in their home timezone: ${staffTimezone})`,
     }
   }
 
-  // Check if shift time falls within availability window
+  // Compare shift times (now in staff's home timezone) against availability window
   const availStart = timeToMinutes(availability.startTime)
   const availEnd = timeToMinutes(availability.endTime)
-  const shiftStart = timeToMinutes(startTime)
-  const shiftEnd = timeToMinutes(endTime)
+  const shiftStart = timeToMinutes(effectiveStartTime)
+  const shiftEnd = timeToMinutes(effectiveEndTime)
 
-  if (shiftStart < availStart || shiftEnd > availEnd) {
+  // Handle overnight shifts after conversion
+  const normalizedShiftEnd = shiftEnd <= shiftStart ? shiftEnd + 24 * 60 : shiftEnd
+
+  if (shiftStart < availStart || normalizedShiftEnd > availEnd) {
+    const tzNote = staffTimezone !== locationTimezone
+      ? ` (shift converted from ${locationTimezone} to staff's home timezone ${staffTimezone}: ${effectiveStartTime}–${effectiveEndTime})`
+      : ''
     return {
       hasConflict: true,
-      message: `Shift (${startTime}-${endTime}) is outside user's availability window (${availability.startTime}-${availability.endTime})`,
+      message: `Shift is outside user's availability window (${availability.startTime}–${availability.endTime})${tzNote}`,
     }
   }
 

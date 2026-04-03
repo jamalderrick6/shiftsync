@@ -495,6 +495,63 @@ async function main() {
     }
   }
 
+  // Create a drop request — Lisa wants to drop her next-Monday Venice shift
+  console.log('Creating sample drop request...')
+  const lisaId = staffUsers['lisa.anderson@coastaleats.com']
+  if (lisaId) {
+    const lisaShift = await prisma.shiftAssignment.findFirst({
+      where: { userId: lisaId, shift: { date: { gte: format(addDays(weekStart, 7), 'yyyy-MM-dd') }, status: 'published' } },
+      include: { shift: true },
+    })
+    if (lisaShift) {
+      await prisma.dropRequest.create({
+        data: {
+          assignmentId: lisaShift.id,
+          userId: lisaId,
+          status: 'open',
+          expiresAt: new Date(new Date(`${lisaShift.shift.date}T${lisaShift.shift.startTime}:00`).getTime() - 24 * 60 * 60 * 1000),
+        },
+      })
+      console.log(`Drop request created for Lisa's shift on ${lisaShift.shift.date}`)
+    }
+  }
+
+  // Create a 6-consecutive-day scenario for Kevin White (triggers the warning)
+  // Assign Kevin to 6 days in a row starting last Monday so it's visible this week
+  console.log('Creating consecutive-days scenario for Kevin White...')
+  const kevinId = staffUsers['kevin.white@coastaleats.com']
+  if (kevinId) {
+    for (let dayOffset = 0; dayOffset < 6; dayOffset++) {
+      const day = addDays(weekStart, dayOffset)
+      const dateStr = format(day, 'yyyy-MM-dd')
+      const existing = await prisma.shiftAssignment.findFirst({
+        where: { userId: kevinId, shift: { date: dateStr } },
+      })
+      if (!existing) {
+        try {
+          const shift = await prisma.shift.create({
+            data: {
+              locationId: harbor.id,
+              skillId: skills['busser'],
+              date: dateStr,
+              startTime: '10:00',
+              endTime: '16:00',
+              headcount: 1,
+              status: 'published',
+              publishedAt: new Date(),
+            },
+          })
+          await prisma.shiftAssignment.create({
+            data: { shiftId: shift.id, userId: kevinId },
+          })
+        } catch {
+          // skip if conflict
+        }
+      }
+    }
+    console.log('Kevin White assigned 6 consecutive days — assigning a 7th will require override reason')
+  }
+
   // Create sample notifications
   console.log('Creating sample notifications...')
   await prisma.notification.createMany({
@@ -518,11 +575,16 @@ async function main() {
 
   console.log('\nSeed completed successfully!')
   console.log('\nTest Accounts:')
-  console.log('Admin: admin@coastaleats.com / admin123')
-  console.log('Manager (NY): sarah.manager@coastaleats.com / manager123')
-  console.log('Manager (LA): mike.manager@coastaleats.com / manager123')
-  console.log('Staff: alex.johnson@coastaleats.com / staff123')
-  console.log('Staff: chris.martinez@coastaleats.com / staff123')
+  console.log('  Admin:         admin@coastaleats.com / admin123')
+  console.log('  Manager (NY):  sarah.manager@coastaleats.com / manager123')
+  console.log('  Manager (LA):  mike.manager@coastaleats.com / manager123')
+  console.log('  Staff:         alex.johnson@coastaleats.com / staff123')
+  console.log('  Staff:         chris.martinez@coastaleats.com / staff123')
+  console.log('\nPre-loaded scenarios:')
+  console.log('  Overtime:         Ryan Taylor has ~40h this week (analytics > overtime alerts)')
+  console.log('  Pending swap:     Alex Johnson ↔ Emily Davis (swap requests page)')
+  console.log('  Open drop:        Lisa Anderson dropped a next-week Venice shift (profile > pick up shifts)')
+  console.log('  Consecutive days: Kevin White has 6 days in a row — assign a 7th to trigger override')
 }
 
 main()

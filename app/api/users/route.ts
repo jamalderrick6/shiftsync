@@ -14,12 +14,23 @@ export async function GET(request: NextRequest) {
   const skillId = searchParams.get('skillId')
   const role = searchParams.get('role')
 
+  // Managers can only see staff certified at their assigned locations
+  let managerLocationFilter: { locationCertifications?: { some: { locationId: { in: string[] } } } } = {}
+  if (session.user.role === 'manager') {
+    const managed = await prisma.locationManager.findMany({
+      where: { userId: session.user.id },
+      select: { locationId: true },
+    })
+    const managedIds = managed.map((m) => m.locationId)
+    managerLocationFilter = { locationCertifications: { some: { locationId: { in: managedIds } } } }
+  }
+
   const users = await prisma.user.findMany({
     where: {
       ...(role ? { role } : {}),
       ...(locationId
         ? { locationCertifications: { some: { locationId } } }
-        : {}),
+        : managerLocationFilter),
       ...(skillId ? { skills: { some: { skillId } } } : {}),
     },
     include: {

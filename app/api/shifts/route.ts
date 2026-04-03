@@ -15,9 +15,19 @@ export async function GET(request: NextRequest) {
   const status = searchParams.get('status')
   const userId = searchParams.get('userId')
 
+  // Managers can only see shifts at their assigned locations
+  let allowedLocationIds: string[] | null = null
+  if (session.user.role === 'manager') {
+    const managed = await prisma.locationManager.findMany({
+      where: { userId: session.user.id },
+      select: { locationId: true },
+    })
+    allowedLocationIds = managed.map((m) => m.locationId)
+  }
+
   const shifts = await prisma.shift.findMany({
     where: {
-      ...(locationId ? { locationId } : {}),
+      ...(locationId ? { locationId } : allowedLocationIds ? { locationId: { in: allowedLocationIds } } : {}),
       ...(startDate && endDate ? { date: { gte: startDate, lte: endDate } } : {}),
       ...(status ? { status } : {}),
       ...(userId ? { assignments: { some: { userId } } } : {}),

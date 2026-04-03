@@ -2,10 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
-import { format, addDays, startOfWeek } from 'date-fns'
+import { format } from 'date-fns'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 interface Availability {
   dayOfWeek: number
@@ -29,9 +28,12 @@ export default function ProfilePage() {
   const [availabilities, setAvailabilities] = useState<Availability[]>([])
   const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([])
   const [myShifts, setMyShifts] = useState<any[]>([])
+  const [myDrops, setMyDrops] = useState<any[]>([])
+  const [availableDrops, setAvailableDrops] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [activeTab, setActiveTab] = useState<'availability' | 'swaps' | 'schedule'>('availability')
+  const [droppingShiftId, setDroppingShiftId] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<'availability' | 'swaps' | 'schedule' | 'pickup'>('availability')
 
   useEffect(() => {
     if (session?.user.id) {
@@ -41,10 +43,12 @@ export default function ProfilePage() {
 
   async function fetchData() {
     setLoading(true)
-    const [usersRes, swapsRes, shiftsRes] = await Promise.all([
+    const [usersRes, swapsRes, shiftsRes, myDropsRes, availDropsRes] = await Promise.all([
       fetch('/api/users'),
       fetch('/api/swap-requests'),
       fetch(`/api/shifts?userId=${session?.user.id}`),
+      fetch('/api/drop-requests?mine=true'),
+      fetch('/api/drop-requests?available=true'),
     ])
 
     if (usersRes.ok) {
@@ -64,10 +68,10 @@ export default function ProfilePage() {
 
     if (swapsRes.ok) setSwapRequests(await swapsRes.json())
     if (shiftsRes.ok) setMyShifts(await shiftsRes.json())
+    if (myDropsRes.ok) setMyDrops(await myDropsRes.json())
+    if (availDropsRes.ok) setAvailableDrops(await availDropsRes.json())
     setLoading(false)
   }
-
-  const [editingAvail, setEditingAvail] = useState<Record<number, boolean>>({})
 
   function toggleAvailDay(day: number) {
     const existing = availabilities.find((a) => a.dayOfWeek === day)
@@ -108,6 +112,45 @@ export default function ProfilePage() {
       body: JSON.stringify({ id: swapId, action }),
     })
     fetchData()
+  }
+
+  async function handleDropShift(assignmentId: string) {
+    setDroppingShiftId(assignmentId)
+    const res = await fetch('/api/drop-requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assignmentId }),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      alert(data.error || 'Failed to create drop request')
+    } else {
+      fetchData()
+    }
+    setDroppingShiftId(null)
+  }
+
+  async function handleClaimDrop(dropId: string) {
+    const res = await fetch(`/api/drop-requests/${dropId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'claim' }),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      alert(data.error || 'Failed to claim shift')
+    } else {
+      fetchData()
+    }
+  }
+
+  async function handleCancelDrop(dropId: string) {
+    const res = await fetch(`/api/drop-requests/${dropId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'cancel' }),
+    })
+    if (res.ok) fetchData()
   }
 
   if (loading) {
@@ -169,6 +212,7 @@ export default function ProfilePage() {
           { key: 'availability', label: 'My Availability' },
           { key: 'swaps', label: `Swap Requests (${swapRequests.length})` },
           { key: 'schedule', label: 'My Schedule' },
+          { key: 'pickup', label: `Pick Up Shifts (${availableDrops.length})` },
         ].map(({ key, label }) => (
           <button
             key={key}
@@ -342,23 +386,98 @@ export default function ProfilePage() {
               <p className="text-gray-500">No shifts scheduled</p>
             </div>
           ) : (
-            myShifts.map((shift: any) => (
-              <div key={shift.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">
-                    {shift.location.name} - {shift.skill.name}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    {shift.date} | {shift.startTime} - {shift.endTime}
-                  </p>
+            myShifts.map((shift: any) => {
+              const myAssignment = shift.assignments?.find((a: any) => a.user.id === session?.user.id)
+              const alreadyDropped = myDrops.some(
+                (d: any) => d.assignment?.shift?.id === shift.id && ['open', 'claimed'].includes(d.status)
+              )
+              const shiftStart = new Date(`${shift.date}T${shift.startTime}:00`)
+              const canDrop = shift.status === 'published' && myAssignment && !alreadyDropped && shiftStart > new Date()
+
+              return (
+                <div key={shift.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">
+                      {shift.location.name} — {shift.skill.name}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {shift.date} | {shift.startTime}–{shift.endTime}
+                    </p>
+                    {alreadyDropped && (
+                      <span className="text-xs text-orange-600 mt-1 inline-block">Drop requested</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                      shift.status === 'published' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                    }`}>
+                      {shift.status}
+                    </span>
+                    {canDrop && (
+                      <button
+                        onClick={() => myAssignment && handleDropShift(myAssignment.id)}
+                        disabled={droppingShiftId === myAssignment?.id}
+                        className="text-xs bg-orange-100 text-orange-700 px-2.5 py-1 rounded-lg hover:bg-orange-200 disabled:opacity-50"
+                      >
+                        {droppingShiftId === myAssignment?.id ? 'Dropping…' : 'Drop Shift'}
+                      </button>
+                    )}
+                    {alreadyDropped && (
+                      <button
+                        onClick={() => {
+                          const drop = myDrops.find((d: any) => d.assignment?.shift?.id === shift.id)
+                          if (drop) handleCancelDrop(drop.id)
+                        }}
+                        className="text-xs bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg hover:bg-gray-200"
+                      >
+                        Cancel Drop
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                  shift.status === 'published' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
-                }`}>
-                  {shift.status}
-                </span>
-              </div>
-            ))
+              )
+            })
+          )}
+        </div>
+      )}
+
+      {/* Pick Up Shifts Tab */}
+      {activeTab === 'pickup' && (
+        <div className="space-y-3">
+          <p className="text-sm text-gray-500">
+            These are shifts dropped by other staff that you are qualified to pick up.
+          </p>
+          {availableDrops.length === 0 ? (
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
+              <p className="text-gray-500">No available shifts to pick up</p>
+            </div>
+          ) : (
+            availableDrops.map((drop: any) => {
+              const shift = drop.assignment?.shift
+              const expiresAt = new Date(drop.expiresAt)
+              const hoursLeft = Math.round((expiresAt.getTime() - Date.now()) / 3600000)
+              return (
+                <div key={drop.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">
+                      {shift?.location?.name} — {shift?.skill?.name}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {shift?.date} | {shift?.startTime}–{shift?.endTime}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Dropped by {drop.user?.name} · Expires in {hoursLeft}h
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleClaimDrop(drop.id)}
+                    className="text-xs bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg hover:bg-blue-200 font-medium"
+                  >
+                    Pick Up
+                  </button>
+                </div>
+              )
+            })
           )}
         </div>
       )}

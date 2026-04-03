@@ -8,7 +8,18 @@ export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  // Managers only see their assigned locations; admins see all
+  let locationFilter: { id?: { in: string[] } } = {}
+  if (session.user.role === 'manager') {
+    const managed = await prisma.locationManager.findMany({
+      where: { userId: session.user.id },
+      select: { locationId: true },
+    })
+    locationFilter = { id: { in: managed.map((m) => m.locationId) } }
+  }
+
   const locations = await prisma.location.findMany({
+    where: locationFilter,
     include: {
       managers: { include: { user: true } },
       certifications: { include: { user: true } },

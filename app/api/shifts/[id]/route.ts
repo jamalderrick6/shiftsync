@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { createAuditLog } from '@/lib/audit'
+import { createNotification } from '@/lib/notifications'
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
@@ -38,8 +39,16 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   const existingShift = await prisma.shift.findUnique({ where: { id: params.id } })
   if (!existingShift) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  if (existingShift.status === 'published' && !['admin'].includes(session.user.role)) {
-    return NextResponse.json({ error: 'Cannot edit a published shift' }, { status: 400 })
+  if (existingShift.status === 'published') {
+    // Enforce 48hr cutoff: cannot edit within 48 hours of shift start
+    const shiftStart = new Date(`${existingShift.date}T${existingShift.startTime}:00`)
+    const hoursUntilShift = (shiftStart.getTime() - Date.now()) / 3600000
+    if (hoursUntilShift < 48 && session.user.role !== 'admin') {
+      return NextResponse.json(
+        { error: `Cannot edit a published shift within 48 hours of its start time (${Math.round(hoursUntilShift)}h remaining)` },
+        { status: 400 }
+      )
+    }
   }
 
   const updatedShift = await prisma.shift.update({
@@ -59,6 +68,37 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
     },
   })
+
+  // Auto-cancel any pending swap requests for this shift
+  const pendingSwaps = await prisma.swapRequest.findMany({
+    where: { shiftId: params.id, status: { in: ['pending', 'accepted'] } },
+    include: {
+      requester: { select: { id: true, name: true } },
+      target: { select: { id: true, name: true } },
+    },
+  })
+  for (const swap of pendingSwaps) {
+    await prisma.swapRequest.update({
+      where: { id: swap.id },
+      data: { status: 'cancelled', managerNote: 'Shift was edited by manager' },
+    })
+    await createNotification({
+      userId: swap.requesterId,
+      type: 'swap_cancelled',
+      title: 'Swap Request Cancelled',
+      message: `Your swap request for the ${updatedShift.skill.name} shift at ${updatedShift.location.name} on ${updatedShift.date} was automatically cancelled because the shift was edited.`,
+      metadata: { swapRequestId: swap.id, shiftId: params.id },
+    })
+    if (swap.targetId) {
+      await createNotification({
+        userId: swap.targetId,
+        type: 'swap_cancelled',
+        title: 'Swap Request Cancelled',
+        message: `A swap request you were involved in for the ${updatedShift.skill.name} shift at ${updatedShift.location.name} on ${updatedShift.date} was cancelled because the shift was edited.`,
+        metadata: { swapRequestId: swap.id, shiftId: params.id },
+      })
+    }
+  }
 
   await createAuditLog({
     userId: session.user.id,

@@ -73,6 +73,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Not your assignment' }, { status: 403 })
   }
 
+  // Enforce max 3 pending swap/drop requests per staff
+  const pendingSwaps = await prisma.swapRequest.count({
+    where: { requesterId: session.user.id, status: { in: ['pending', 'accepted'] } },
+  })
+  const pendingDrops = await prisma.dropRequest.count({
+    where: { userId: session.user.id, status: { in: ['open', 'claimed'] } },
+  })
+  if (pendingSwaps + pendingDrops >= 3) {
+    return NextResponse.json(
+      { error: 'You already have 3 pending swap/drop requests. Resolve existing requests before creating new ones.' },
+      { status: 422 }
+    )
+  }
+
   const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000)
 
   let targetAssignment = null

@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import React from 'react'
 import { format, addDays, startOfWeek } from 'date-fns'
+import { useSession } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
 
 interface PremiumShiftDetail {
   date: string
@@ -34,6 +36,13 @@ interface OvertimeAlert {
 }
 
 export default function AnalyticsPage() {
+  const { data: session } = useSession()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (session?.user.role === 'staff') router.replace('/')
+  }, [session, router])
+
   const [fairnessStats, setFairnessStats] = useState<FairnessStats[]>([])
   const [overtimeAlerts, setOvertimeAlerts] = useState<OvertimeAlert[]>([])
   const [fairnessSummary, setFairnessSummary] = useState<any>(null)

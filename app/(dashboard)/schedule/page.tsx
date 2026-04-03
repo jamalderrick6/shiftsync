@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { format, addDays, startOfWeek, parseISO } from 'date-fns'
 import { useSession } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
 
 interface Shift {
   id: string
@@ -46,6 +47,11 @@ const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 export default function SchedulePage() {
   const { data: session } = useSession()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (session?.user.role === 'staff') router.replace('/')
+  }, [session, router])
   const [currentWeekStart, setCurrentWeekStart] = useState(() =>
     startOfWeek(new Date(), { weekStartsOn: 1 })
   )
